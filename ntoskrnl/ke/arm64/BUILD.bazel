@@ -1,0 +1,16 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "early_boot_asm",
+    srcs = [
+        "bootstack.S",
+        "zeropage.S",
+    ],
+    copts = [
+        "-x", "assembler-with-cpp",
+        "-D__ASM__",
+        "-D_ARM64_",
+        "-D__aarch64__",
+    ],
+    visibility = ["//visibility:public"],
+)

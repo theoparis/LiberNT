@@ -1,0 +1,6 @@
+# Bazel ignore list
+output-*
+output-*/*
+.git
+sdk/lib/3rdparty/llvm-project
+submodules

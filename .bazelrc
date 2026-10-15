@@ -1,0 +1,7 @@
+# Bazel configuration for LiberNT
+
+# Target platform for Windows / PE kernel targets (MinGW / aarch64-w64-mingw32 ABI)
+build:arm64_nt --platforms=@llvm//platforms:windows_aarch64
+
+# Default target platform for ARM64 kernel
+build:arm64 --platforms=@llvm//platforms:windows_aarch64

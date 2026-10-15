@@ -1,0 +1,52 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "xdk_templates_and_headers",
+    srcs = glob([
+        "**/*.h",
+        "**/*.template.h",
+    ]),
+)
+
+XDK_TARGETS = [
+    ("wdm", "ddk/wdm.h"),
+    ("ntddk", "ddk/ntddk.h"),
+    ("ntifs", "ddk/ntifs.h"),
+    ("devioctl", "psdk/devioctl.h"),
+    ("ntdef", "psdk/ntdef.h"),
+    ("winnt", "psdk/winnt.h"),
+]
+
+[
+    genrule(
+        name = "gen_" + template_name,
+        srcs = [
+            template_name + ".template.h",
+            ":xdk_templates_and_headers",
+        ],
+        outs = [out_path],
+        cmd = """
+            TOOL_PATH=$$(pwd)/$(location //sdk/tools/hpp:hpp)
+            OUT_PATH=$$(pwd)/$(location {out_path})
+            cd sdk/include/xdk
+            "$$TOOL_PATH" {template_name}.template.h "$$OUT_PATH"
+        """.format(
+            out_path = out_path,
+            template_name = template_name,
+        ),
+        tools = ["//sdk/tools/hpp:hpp"],
+    )
+    for template_name, out_path in XDK_TARGETS
+]
+
+cc_library(
+    name = "xdk_headers",
+    hdrs = [out_path for _, out_path in XDK_TARGETS],
+    includes = [
+        ".",
+        "ddk",
+        "psdk",
+    ],
+)

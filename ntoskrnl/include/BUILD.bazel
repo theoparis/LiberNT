@@ -1,0 +1,18 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "ntoskrnl_headers",
+    hdrs = glob([
+        "*.h",
+        "internal/*.h",
+    ]),
+    includes = [
+        ".",
+        "internal",
+    ],
+    deps = [
+        "//sdk/include:sdk_headers",
+    ],
+)
