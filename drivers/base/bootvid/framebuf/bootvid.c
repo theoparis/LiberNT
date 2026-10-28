@@ -551,10 +551,8 @@ VidInitialize(
         return FALSE;
     }
 
-    /* The VRAM address must be page-aligned */
-    if (VramAddress.QuadPart % PAGE_SIZE != 0) // DPRINTed for diagnostics on some systems
+    if (VramAddress.QuadPart % PAGE_SIZE != 0)
         DPRINT1("** VramAddress 0x%I64X isn't PAGE_SIZE aligned\n", VramAddress.QuadPart);
-    ASSERT(VramAddress.QuadPart % PAGE_SIZE == 0);
     if (VramSize % PAGE_SIZE != 0)
         DPRINT1("** VramSize %lu (0x%lx) isn't multiple of PAGE_SIZE\n", VramSize, VramSize);
     // ASSERT(VramSize % PAGE_SIZE == 0); // This assert may fail, e.g. 800x600@32bpp UEFI GOP display
