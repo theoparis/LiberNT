@@ -99,6 +99,14 @@ el2_common:
     orr x1, x1, x2        /* EL1PCEN | EL1PCTEN */
     msr cnthctl_el2, x1
 
+    mrs x1, midr_el1
+    ubfx x1, x1, #24, #8
+    cmp x1, #0x61
+    b.ne .Lloader_no_apple_fiq
+    mov x1, #3
+    msr S3_5_C15_C1_3, x1
+.Lloader_no_apple_fiq:
+
     /* Permit SIMD/FPU and system instructions at EL1 */
     msr cptr_el2, xzr
     msr hstr_el2, xzr
