@@ -33,6 +33,7 @@ extern PFN_NUMBER MmHighestPhysicalPage;
 
 extern const PFN_NUMBER MmArchMaxLoaderPage;
 extern const PFN_NUMBER MmArchMaxRamdiskPage;
+extern const PFN_NUMBER MmArchMaxLoaderFallbackPage;
 
 BOOLEAN
 MmInitializeMemoryManager(VOID);
