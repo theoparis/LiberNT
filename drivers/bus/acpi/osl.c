@@ -294,6 +294,23 @@ AcpiOsGetRootPointer (
         return (ACPI_PHYSICAL_ADDRESS)PhysicalAddress.QuadPart;
     }
 
+    {
+        HAL_ACPI_ROOT_POINTER_INFORMATION RootInformation;
+        ULONG ReturnedLength = 0;
+        NTSTATUS Status;
+
+        RtlZeroMemory(&RootInformation, sizeof(RootInformation));
+        Status = HalQuerySystemInformation(HalAcpiAuditInformation,
+                                           sizeof(RootInformation),
+                                           &RootInformation,
+                                           &ReturnedLength);
+        if (NT_SUCCESS(Status) && (RootInformation.RsdpPhysicalAddress.QuadPart != 0))
+            return (ACPI_PHYSICAL_ADDRESS)RootInformation.RsdpPhysicalAddress.QuadPart;
+
+        if (Status == STATUS_NOT_SUPPORTED)
+            return 0;
+    }
+
     AcpiFindRootPointer(&pa);
     return pa;
 }

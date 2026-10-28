@@ -1054,7 +1054,7 @@ HaliQuerySystemInformation(
             if (ReturnedLength)
                 *ReturnedLength = sizeof(*Info);
 
-            return HasAcpi ? STATUS_SUCCESS : STATUS_NOT_FOUND;
+            return HasAcpi ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
         }
 
         case HalSecondaryInterruptInformation:
