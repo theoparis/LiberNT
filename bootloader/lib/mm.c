@@ -158,7 +158,18 @@ MmAllocateMemoryWithType(
     SIZE_T MemorySize,
     TYPE_OF_MEMORY MemoryType)
 {
-    return MmAllocateMemoryBelow(MemorySize, MemoryType, MmArchMaxLoaderPage);
+    PVOID Memory;
+
+    Memory = MmAllocateMemoryBelow(MemorySize, MemoryType, MmArchMaxLoaderPage);
+    if (!Memory)
+    {
+        PFN_NUMBER Limit = min(MmArchMaxLoaderFallbackPage, MmHighestPhysicalPage);
+
+        if (Limit > MmArchMaxLoaderPage)
+            Memory = MmAllocateMemoryBelow(MemorySize, MemoryType, Limit);
+    }
+
+    return Memory;
 }
 
 PVOID
