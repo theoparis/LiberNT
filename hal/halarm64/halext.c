@@ -22,6 +22,7 @@
 #include "bcm2711_pci.h"
 #include "bcm2711_vc.h"
 #include "bcm2837.h"
+#include "apple_aic.h"
 
 #define NDEBUG
 #include <debug.h>
@@ -40,6 +41,7 @@ static const HAL_ARM64_PLATFORM HalpArm64Platforms[] =
 {
     { "BCM2711 (Raspberry Pi 4)", Bcm2711PciProbe },
     { "BCM2837 (Raspberry Pi 3)", Bcm2837InterruptProbe },
+    { "Apple AIC", AppleAicInterruptProbe },
 };
 
 static BOOLEAN HalpArm64PlatformMatched = FALSE;
