@@ -134,6 +134,9 @@ EarlyUartDiagInterfaceName(_In_ ARM64_UART_INTERFACE Interface)
         case Arm64UartBcm2835Mini:
             return "bcm2835-mini";
 
+        case Arm64UartAppleS5l:
+            return "apple-s5l";
+
         default:
             return "unknown";
     }
@@ -454,6 +457,7 @@ EarlyUartProbeCandidate(
         case Arm64UartPl011:
         case Arm64UartNs16550:
         case Arm64UartBcm2835Mini:
+        case Arm64UartAppleS5l:
             return TRUE;
 
         default:
@@ -674,6 +678,214 @@ EarlyUartLocateDbg2Address(_Out_opt_ ARM64_UART_INTERFACE *UartInterface)
     return 0;
 }
 
+#define EARLY_UART_FDT_MAGIC        0xD00DFEEDU
+#define EARLY_UART_FDT_HEADER_SIZE  40U
+#define EARLY_UART_FDT_BEGIN_NODE   1U
+#define EARLY_UART_FDT_END_NODE     2U
+#define EARLY_UART_FDT_PROP         3U
+#define EARLY_UART_FDT_NOP          4U
+#define EARLY_UART_FDT_END          9U
+#define EARLY_UART_FDT_MAX_DEPTH    16U
+
+static const EFI_GUID EarlyUartFdtGuid =
+    {0xB1B621D5, 0xF19C, 0x41A5, {0x83, 0x0B, 0xD9, 0x15, 0x2C, 0x69, 0xAA, 0xE0}};
+
+static UINT32
+EarlyUartFdtRead32(_In_ const UCHAR *Data)
+{
+    return ((UINT32)Data[0] << 24) | ((UINT32)Data[1] << 16) |
+           ((UINT32)Data[2] << 8) | (UINT32)Data[3];
+}
+
+static BOOLEAN
+EarlyUartFdtStringIs(
+    _In_ const UCHAR *Text,
+    _In_ const UCHAR *Limit,
+    _In_ PCSTR Wanted)
+{
+    while (*Wanted)
+    {
+        if (Text >= Limit || *Text != (UCHAR)*Wanted)
+            return FALSE;
+
+        Text++;
+        Wanted++;
+    }
+
+    return Text < Limit && *Text == 0;
+}
+
+static BOOLEAN
+EarlyUartFdtListHas(
+    _In_reads_bytes_(Length) const UCHAR *Data,
+    _In_ UINT32 Length,
+    _In_ PCSTR Wanted)
+{
+    UINT32 Offset = 0;
+    UINT32 Start;
+
+    while (Offset < Length)
+    {
+        Start = Offset;
+        while (Offset < Length && Data[Offset])
+            Offset++;
+
+        if (Offset >= Length)
+            break;
+
+        if (EarlyUartFdtStringIs(Data + Start, Data + Length, Wanted))
+            return TRUE;
+
+        Offset++;
+    }
+
+    return FALSE;
+}
+
+static UINT64
+EarlyUartLocateFdtAddress(_Out_opt_ ARM64_UART_INTERFACE *UartInterface)
+{
+    const UCHAR *Fdt = NULL;
+    const UCHAR *Cursor;
+    const UCHAR *StructEnd;
+    const UCHAR *Strings;
+    const UCHAR *StringsEnd;
+    const UCHAR *Reg[EARLY_UART_FDT_MAX_DEPTH];
+    UINT32 RegLength[EARLY_UART_FDT_MAX_DEPTH];
+    UINT32 AddressCells[EARLY_UART_FDT_MAX_DEPTH];
+    BOOLEAN Match[EARLY_UART_FDT_MAX_DEPTH];
+    BOOLEAN Enabled[EARLY_UART_FDT_MAX_DEPTH];
+    UINT32 Total, StructOffset, StructSize, StringsOffset, StringsSize;
+    UINT32 Token, Length, NameOffset, Cells;
+    LONG Depth = -1;
+    UINTN Index;
+
+    if (UartInterface)
+        *UartInterface = Arm64UartUnknown;
+
+    for (Index = 0; Index < GlobalSystemTable->NumberOfTableEntries; Index++)
+    {
+        if (RtlEqualMemory(&GlobalSystemTable->ConfigurationTable[Index].VendorGuid,
+                           &EarlyUartFdtGuid,
+                           sizeof(EFI_GUID)))
+        {
+            Fdt = GlobalSystemTable->ConfigurationTable[Index].VendorTable;
+            break;
+        }
+    }
+
+    if (!Fdt || EarlyUartFdtRead32(Fdt) != EARLY_UART_FDT_MAGIC)
+        return 0;
+
+    Total = EarlyUartFdtRead32(Fdt + 4);
+    StructOffset = EarlyUartFdtRead32(Fdt + 8);
+    StringsOffset = EarlyUartFdtRead32(Fdt + 12);
+    StringsSize = EarlyUartFdtRead32(Fdt + 32);
+    StructSize = EarlyUartFdtRead32(Fdt + 36);
+
+    if (Total < EARLY_UART_FDT_HEADER_SIZE ||
+        StructOffset > Total || StructSize > Total - StructOffset ||
+        StringsOffset > Total || StringsSize > Total - StringsOffset)
+    {
+        return 0;
+    }
+
+    Cursor = Fdt + StructOffset;
+    StructEnd = Cursor + StructSize;
+    Strings = Fdt + StringsOffset;
+    StringsEnd = Strings + StringsSize;
+
+    while (Cursor + 4 <= StructEnd)
+    {
+        Token = EarlyUartFdtRead32(Cursor);
+        Cursor += 4;
+
+        if (Token == EARLY_UART_FDT_BEGIN_NODE)
+        {
+            while (Cursor < StructEnd && *Cursor)
+                Cursor++;
+
+            if (Cursor >= StructEnd)
+                return 0;
+
+            Cursor = Fdt + ((((ULONG_PTR)(Cursor + 1 - Fdt)) + 3) & ~(ULONG_PTR)3);
+            if (++Depth >= (LONG)EARLY_UART_FDT_MAX_DEPTH)
+                return 0;
+
+            AddressCells[Depth] = 2;
+            Match[Depth] = FALSE;
+            Enabled[Depth] = TRUE;
+            Reg[Depth] = NULL;
+            RegLength[Depth] = 0;
+        }
+        else if (Token == EARLY_UART_FDT_END_NODE)
+        {
+            if (Depth < 0)
+                return 0;
+
+            Cells = Depth > 0 ? AddressCells[Depth - 1] : 2;
+            if (Match[Depth] && Enabled[Depth] && Reg[Depth] &&
+                (Cells == 1 || Cells == 2) && RegLength[Depth] >= Cells * 4)
+            {
+                UINT64 Address = EarlyUartFdtRead32(Reg[Depth]);
+
+                if (Cells == 2)
+                    Address = (Address << 32) | EarlyUartFdtRead32(Reg[Depth] + 4);
+
+                if (Address != 0)
+                {
+                    if (UartInterface)
+                        *UartInterface = Arm64UartAppleS5l;
+
+                    return Address;
+                }
+            }
+
+            Depth--;
+        }
+        else if (Token == EARLY_UART_FDT_PROP)
+        {
+            const UCHAR *Data;
+            const UCHAR *Name;
+
+            if (StructEnd - Cursor < 8)
+                return 0;
+
+            Length = EarlyUartFdtRead32(Cursor);
+            NameOffset = EarlyUartFdtRead32(Cursor + 4);
+            Cursor += 8;
+
+            if (Length > (UINT32)(StructEnd - Cursor) || NameOffset >= StringsSize)
+                return 0;
+
+            Data = Cursor;
+            Name = Strings + NameOffset;
+            Cursor = Fdt + ((((ULONG_PTR)(Cursor + Length - Fdt)) + 3) & ~(ULONG_PTR)3);
+
+            if (Depth < 0)
+                continue;
+
+            if (EarlyUartFdtStringIs(Name, StringsEnd, "#address-cells") && Length == 4)
+                AddressCells[Depth] = EarlyUartFdtRead32(Data);
+            else if (EarlyUartFdtStringIs(Name, StringsEnd, "compatible"))
+                Match[Depth] = EarlyUartFdtListHas(Data, Length, "apple,s5l-uart");
+            else if (EarlyUartFdtStringIs(Name, StringsEnd, "status"))
+                Enabled[Depth] = Length >= 2 && Data[0] == 'o' && Data[1] == 'k';
+            else if (EarlyUartFdtStringIs(Name, StringsEnd, "reg"))
+            {
+                Reg[Depth] = Data;
+                RegLength[Depth] = Length;
+            }
+        }
+        else if (Token != EARLY_UART_FDT_NOP)
+        {
+            break;
+        }
+    }
+
+    return 0;
+}
+
 ARM64_PLATFORM_ID
 EarlyUartDetectPlatform(VOID)
 {
@@ -685,6 +897,8 @@ EarlyUartDetectPlatform(VOID)
     Address = EarlyUartLocateSpcrAddress(&Interface);
     if (Address == 0)
         Address = EarlyUartLocateDbg2Address(&Interface);
+    if (Address == 0)
+        Address = EarlyUartLocateFdtAddress(&Interface);
 
     if (Address == 0)
     {
