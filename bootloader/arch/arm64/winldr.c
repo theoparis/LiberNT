@@ -16,6 +16,7 @@
 #include <drivers/acpi/acpi.h>
 #include <reactos/arm64/acpi.h>
 #include <reactos/arm64/early_uart.h>
+#include <reactos/arm64/fdt.h>
 extern EFI_SYSTEM_TABLE *GlobalSystemTable;
 DBG_DEFAULT_CHANNEL(WINDOWS);
 
@@ -439,6 +440,44 @@ Arm64AddEarlyDeviceRange(
 
 static
 VOID
+Arm64PopulateDeviceTree(PLOADER_PARAMETER_BLOCK LoaderBlock)
+{
+    static PCSTR AicCompatibles[] = {"apple,aic", "apple,aic2", "apple,aic3"};
+    PVOID Fdt;
+    PVOID Copy;
+    ULONG Size;
+    ULONGLONG Address;
+    ULONGLONG Length;
+    ULONG Index;
+    ULONG Reg;
+
+    LoaderBlock->u.Arm64.DeviceTree = 0;
+    LoaderBlock->u.Arm64.DeviceTreeSize = 0;
+
+    Fdt = Arm64LocateFirmwareFdt();
+    if (!Fdt || !Arm64FdtGetSize(Fdt, &Size))
+        return;
+
+    Copy = MmAllocateMemoryWithType(Size, LoaderSystemBlock);
+    if (!Copy)
+    {
+        ERR("ARM64: no memory for the firmware devicetree\n");
+        return;
+    }
+
+    RtlCopyMemory(Copy, Fdt, Size);
+    LoaderBlock->u.Arm64.DeviceTree = (ULONGLONG)(ULONG_PTR)PaToVa(Copy);
+    LoaderBlock->u.Arm64.DeviceTreeSize = Size;
+
+    for (Index = 0; Index < RTL_NUMBER_OF(AicCompatibles); Index++)
+    {
+        for (Reg = 0; Arm64FdtFindReg(Copy, AicCompatibles[Index], Reg, &Address, &Length); Reg++)
+            Arm64AddEarlyDeviceRange(LoaderBlock, Address, Length);
+    }
+}
+
+static
+VOID
 Arm64PopulateEarlyDeviceRanges(PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PARM64_ACPI_MADT Madt;
@@ -453,6 +492,8 @@ Arm64PopulateEarlyDeviceRanges(PLOADER_PARAMETER_BLOCK LoaderBlock)
     Arm64AddEarlyDeviceRange(LoaderBlock,
                              LoaderBlock->u.Arm64.EarlyUartAddress,
                              PAGE_SIZE);
+
+    Arm64PopulateDeviceTree(LoaderBlock);
 
     /*
      * BCM2837 (Raspberry Pi 3): the HAL drives the ARMCTRL interrupt
