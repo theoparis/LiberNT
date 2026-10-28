@@ -29,6 +29,7 @@ typedef struct _ARM64_CONTEXT
 
 /* Function prototypes */
 VOID Arm64InitializeMMU(VOID);
+PVOID Arm64LocateFirmwareFdt(VOID);
 VOID Arm64PreparePageTables(VOID);
 VOID Arm64EnablePageTables(VOID);
 VOID Arm64ApplyDeferredPageTableMemoryTypes(VOID);
