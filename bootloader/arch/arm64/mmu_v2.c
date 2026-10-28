@@ -2705,6 +2705,13 @@ VOID Arm64EnablePageTables(VOID)
         ensure_page_tables_initialized();
     Arm64ApplyImageSectionProtections();
 
+    if (el == 2 && el12)
+    {
+        Arm64EnsureEl1EntryState();
+        el = get_effective_el();
+        el12 = use_el12_registers();
+    }
+
     /*
      * Windows loaders run EL1.  If firmware returned from ExitBootServices in
      * plain EL2, program the EL1 register set from EL2 first and only then drop
