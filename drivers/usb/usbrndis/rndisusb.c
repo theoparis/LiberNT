@@ -1484,8 +1484,8 @@ RndisNcmGetNtbParameters(
          * For TX (building NTBs), use OUT parameters.
          * For RX (SET_NTB_INPUT_SIZE), use our buffer size capped to IN max.
          */
-        Adapter->NcmNtbMaxSize = (Params->dwNtbInMaxSize < RNDIS_MAX_TRANSFER_SIZE) ?
-                                  Params->dwNtbInMaxSize : RNDIS_MAX_TRANSFER_SIZE;
+        Adapter->NcmNtbMaxSize = (Params->dwNtbInMaxSize < RNDIS_RX_BUFFER_SIZE) ?
+                                  Params->dwNtbInMaxSize : RNDIS_RX_BUFFER_SIZE;
         Adapter->NcmNtbOutMaxSize = (Params->dwNtbOutMaxSize < NCM_DEFAULT_NTB_MAX_SIZE) ?
                                     Params->dwNtbOutMaxSize : NCM_DEFAULT_NTB_MAX_SIZE;
         Adapter->NcmNdpDivisor = Params->wNdpOutDivisor;
@@ -2210,7 +2210,7 @@ RndisUsbSubmitBulkRead(
         Adapter->BulkInEndpoint.PipeHandle,
         Adapter->RxHot.RxBuffer,
         NULL,
-        RNDIS_MAX_TRANSFER_SIZE,
+        RNDIS_RX_BUFFER_SIZE,
         USBD_TRANSFER_DIRECTION_IN | USBD_SHORT_TRANSFER_OK,
         NULL);
 
