@@ -808,6 +808,8 @@ USBCCGP_PDOSelectConfiguration(
     ULONG InterfaceIndex, Length;
     PUSBD_INTERFACE_LIST_ENTRY Entry;
     ULONG NeedSelect, FoundInterface;
+    PUSBD_INTERFACE_INFORMATION NewInterface;
+    PUSB_INTERFACE_DESCRIPTOR NewDescriptor;
     NTSTATUS Status;
 
     //
@@ -923,7 +925,7 @@ USBCCGP_PDOSelectConfiguration(
         NeedSelect = FALSE;
         if (Entry->InterfaceDescriptor->bAlternateSetting == InterfaceInformation->AlternateSetting)
         {
-            for(InterfaceIndex = 0; InterfaceIndex < InterfaceInformation->NumberOfPipes; InterfaceIndex++)
+            for(InterfaceIndex = 0; InterfaceIndex < InterfaceInformation->NumberOfPipes && InterfaceIndex < Entry->Interface->NumberOfPipes; InterfaceIndex++)
             {
                 if (InterfaceInformation->Pipes[InterfaceIndex].MaximumTransferSize != Entry->Interface->Pipes[InterfaceIndex].MaximumTransferSize)
                 {
@@ -969,7 +971,6 @@ USBCCGP_PDOSelectConfiguration(
             // select interface
             //
             DPRINT("Selecting InterfaceIndex %lu AlternateSetting %lu NumberOfPipes %lu\n", InterfaceInformation->InterfaceNumber, InterfaceInformation->AlternateSetting, InterfaceInformation->NumberOfPipes);
-            ASSERT(InterfaceInformation->Length == Entry->Interface->Length);
 
             //
             // build urb
@@ -1006,9 +1007,26 @@ USBCCGP_PDOSelectConfiguration(
             //
             // update configuration info
             //
-            ASSERT(Entry->Interface->Length >= NewUrb->UrbSelectInterface.Interface.Length);
-            ASSERT(Length >= NewUrb->UrbSelectInterface.Interface.Length);
-            RtlCopyMemory(Entry->Interface, &NewUrb->UrbSelectInterface.Interface, NewUrb->UrbSelectInterface.Interface.Length);
+            NewInterface = AllocateItem(NonPagedPool, NewUrb->UrbSelectInterface.Interface.Length);
+            if (!NewInterface)
+            {
+                FreeItem(NewUrb);
+                return STATUS_INSUFFICIENT_RESOURCES;
+            }
+            RtlCopyMemory(NewInterface, &NewUrb->UrbSelectInterface.Interface, NewUrb->UrbSelectInterface.Interface.Length);
+            FreeItem(Entry->Interface);
+            Entry->Interface = NewInterface;
+
+            if (PDODeviceExtension->ConfigurationDescriptor)
+            {
+                NewDescriptor = USBD_ParseConfigurationDescriptorEx(PDODeviceExtension->ConfigurationDescriptor,
+                                                                    PDODeviceExtension->ConfigurationDescriptor,
+                                                                    NewInterface->InterfaceNumber,
+                                                                    NewInterface->AlternateSetting,
+                                                                    -1, -1, -1);
+                if (NewDescriptor)
+                    Entry->InterfaceDescriptor = NewDescriptor;
+            }
 
             //
             // update provided interface information
