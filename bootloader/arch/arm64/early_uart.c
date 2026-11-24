@@ -142,6 +142,9 @@ EarlyUartDiagInterfaceName(_In_ ARM64_UART_INTERFACE Interface)
         case Arm64UartBcm2835Mini:
             return "bcm2835-mini";
 
+        case Arm64UartAppleS5l:
+            return "apple-s5l";
+
         default:
             return "unknown";
     }
@@ -477,6 +480,7 @@ EarlyUartProbeCandidate(
         case Arm64UartNs16550:
         case Arm64UartNs16550Mmio32:
         case Arm64UartBcm2835Mini:
+        case Arm64UartAppleS5l:
             return TRUE;
 
         default:
@@ -702,40 +706,23 @@ EarlyUartLocateDbg2Address(_Out_opt_ ARM64_UART_INTERFACE *UartInterface)
 }
 
 static UINT64
-EarlyUartLocateDeviceTreeAddress(_Out_ ARM64_UART_INTERFACE *UartInterface)
+EarlyUartLocateStdoutAddress(
+    _In_ const FDT *OpenedFdt,
+    _Out_ ARM64_UART_INTERFACE *UartInterface)
 {
-    EFI_GUID DeviceTreeGuid = FDT_TABLE_GUID;
     ARM64_UART_INTERFACE Interface;
     const VOID *Compatible;
     const CHAR *Path;
     ULONGLONG Address;
     ULONGLONG Size;
-    FDT Fdt;
+    FDT Fdt = *OpenedFdt;
     ULONG Chosen;
     ULONG Parent;
     ULONG Length;
     ULONG Value;
     ULONG Node;
-    UINTN Index;
 
     *UartInterface = Arm64UartUnknown;
-    if (!GlobalSystemTable || !GlobalSystemTable->ConfigurationTable)
-        return 0;
-    for (Index = 0; Index < GlobalSystemTable->NumberOfTableEntries; ++Index)
-    {
-        EFI_CONFIGURATION_TABLE *Entry = &GlobalSystemTable->ConfigurationTable[Index];
-
-        if (!memcmp(&Entry->VendorGuid, &DeviceTreeGuid, sizeof(DeviceTreeGuid)) &&
-            FdtOpen(Entry->VendorTable, FDT_MAXIMUM_SIZE, &Fdt))
-        {
-            break;
-        }
-    }
-    if (Index == GlobalSystemTable->NumberOfTableEntries)
-    {
-        EarlyUartDiagPuts("[EUART] FDT: not found\n");
-        return 0;
-    }
     if (!FdtFindNode(&Fdt, "/chosen", &Chosen, NULL))
     {
         EarlyUartDiagPuts("[EUART] FDT: no /chosen\n");
@@ -766,6 +753,10 @@ EarlyUartLocateDeviceTreeAddress(_Out_ ARM64_UART_INTERFACE *UartInterface)
         }
         Interface = Arm64UartNs16550;
     }
+    else if (FdtStringListContains(Compatible, Length, "apple,s5l-uart"))
+    {
+        Interface = Arm64UartAppleS5l;
+    }
     else
     {
         EarlyUartDiagPuts("[EUART] FDT: stdout-path has no supported compatible\n");
@@ -786,6 +777,104 @@ EarlyUartLocateDeviceTreeAddress(_Out_ ARM64_UART_INTERFACE *UartInterface)
     if (!EarlyUartProbeCandidate(Address, Interface))
         return 0;
     *UartInterface = Interface;
+    return Address;
+}
+
+/*
+ * Apple firmware does not always name its console in /chosen. Use the first
+ * enabled S5L UART of the tree, as m1n1 and U-Boot describe the debug port.
+ */
+static BOOLEAN
+EarlyUartFindAppleS5l(
+    _In_ PFDT Fdt,
+    _In_ ULONG Node,
+    _In_ ULONG Parent,
+    _In_ ULONG Depth,
+    _Out_ PULONG Found,
+    _Out_ PULONG FoundParent)
+{
+    const VOID *Property;
+    ULONG Length;
+    ULONG Child;
+
+    Property = FdtGetProperty(Fdt, Node, "compatible", &Length);
+    if (Property && Parent != FDT_NO_NODE &&
+        FdtStringListContains(Property, Length, "apple,s5l-uart"))
+    {
+        Property = FdtGetProperty(Fdt, Node, "status", &Length);
+        if (!Property ||
+            FdtStringListContains(Property, Length, "okay") ||
+            FdtStringListContains(Property, Length, "ok"))
+        {
+            *Found = Node;
+            *FoundParent = Parent;
+            return TRUE;
+        }
+    }
+    if (Depth >= 8)
+        return FALSE;
+    for (Child = FdtFirstChild(Fdt, Node); Child != FDT_NO_NODE; Child = FdtNextSibling(Fdt, Child))
+    {
+        if (EarlyUartFindAppleS5l(Fdt, Child, Node, Depth + 1, Found, FoundParent))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static UINT64
+EarlyUartLocateAppleS5lAddress(
+    _In_ PFDT Fdt,
+    _Out_ ARM64_UART_INTERFACE *UartInterface)
+{
+    ULONGLONG Address;
+    ULONGLONG Size;
+    ULONG Parent;
+    ULONG Node;
+
+    if (!EarlyUartFindAppleS5l(Fdt, FdtRootNode(Fdt), FDT_NO_NODE, 0, &Node, &Parent) ||
+        !FdtReadReg(Fdt, Node, Parent, 0, &Address, &Size) || Address == 0 || Size == 0)
+    {
+        return 0;
+    }
+    EarlyUartDiagPuts("[EUART] FDT: apple,s5l-uart addr=0x");
+    EarlyUartDiagHex(Address, 16);
+    EarlyUartDiagPuts("\n");
+    if (!EarlyUartProbeCandidate(Address, Arm64UartAppleS5l))
+        return 0;
+    *UartInterface = Arm64UartAppleS5l;
+    return Address;
+}
+
+static UINT64
+EarlyUartLocateDeviceTreeAddress(_Out_ ARM64_UART_INTERFACE *UartInterface)
+{
+    EFI_GUID DeviceTreeGuid = FDT_TABLE_GUID;
+    UINT64 Address;
+    FDT Fdt;
+    UINTN Index;
+
+    *UartInterface = Arm64UartUnknown;
+    if (!GlobalSystemTable || !GlobalSystemTable->ConfigurationTable)
+        return 0;
+    for (Index = 0; Index < GlobalSystemTable->NumberOfTableEntries; ++Index)
+    {
+        EFI_CONFIGURATION_TABLE *Entry = &GlobalSystemTable->ConfigurationTable[Index];
+
+        if (!memcmp(&Entry->VendorGuid, &DeviceTreeGuid, sizeof(DeviceTreeGuid)) &&
+            FdtOpen(Entry->VendorTable, FDT_MAXIMUM_SIZE, &Fdt))
+        {
+            break;
+        }
+    }
+    if (Index == GlobalSystemTable->NumberOfTableEntries)
+    {
+        EarlyUartDiagPuts("[EUART] FDT: not found\n");
+        return 0;
+    }
+
+    Address = EarlyUartLocateStdoutAddress(&Fdt, UartInterface);
+    if (Address == 0)
+        Address = EarlyUartLocateAppleS5lAddress(&Fdt, UartInterface);
     return Address;
 }
 

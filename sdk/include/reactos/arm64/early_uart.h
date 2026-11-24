@@ -49,6 +49,7 @@ typedef enum _ARM64_UART_INTERFACE
      * access describes it. Values travel in the loader block, so new
      * interfaces are appended. */
     Arm64UartNs16550Mmio32,
+    Arm64UartAppleS5l,
     Arm64UartMax
 } ARM64_UART_INTERFACE;
 
@@ -88,6 +89,13 @@ typedef enum _ARM64_UART_INTERFACE
 #define ARM64_BCM2835_MINI_UART_LSR           0x054
 #define ARM64_BCM2835_MINI_UART_LSR_DR        (1U << 0)
 #define ARM64_BCM2835_MINI_UART_LSR_TX_EMPTY  (1U << 5)
+
+/* Apple S5L UART, register layout from m1n1's uart_regs.h. */
+#define ARM64_APPLE_S5L_UTRSTAT               0x010
+#define ARM64_APPLE_S5L_UTXH                  0x020
+#define ARM64_APPLE_S5L_URXH                  0x024
+#define ARM64_APPLE_S5L_UTRSTAT_RXD           (1U << 0)
+#define ARM64_APPLE_S5L_UTRSTAT_TXBE          (1U << 1)
 
 /*
  * Qualcomm GENI/QUP UART register offsets and bits. This is the FIFO-mode
@@ -599,6 +607,15 @@ EarlyUartPutc(CHAR Ch)
             EARLY_UART_WRITE_AT(BaseVa, ARM64_BCM2835_MINI_UART_IO, (UINT32)(UCHAR)Ch);
             break;
 
+        case Arm64UartAppleS5l:
+            while (!(EARLY_UART_READ_AT(BaseVa, ARM64_APPLE_S5L_UTRSTAT) & ARM64_APPLE_S5L_UTRSTAT_TXBE))
+            {
+                EARLY_UART_YIELD();
+            }
+
+            EARLY_UART_WRITE_AT(BaseVa, ARM64_APPLE_S5L_UTXH, (UINT32)(UCHAR)Ch);
+            break;
+
         case Arm64UartQcomGeni:
             EarlyUartQcomGeniPutc(Ch);
             break;
@@ -658,6 +675,15 @@ EarlyUartGetc(_Out_ UCHAR *Byte)
             }
 
             *Byte = (UCHAR)(EARLY_UART_READ_AT(BaseVa, ARM64_BCM2835_MINI_UART_IO) & 0xFF);
+            break;
+
+        case Arm64UartAppleS5l:
+            if (!(EARLY_UART_READ_AT(BaseVa, ARM64_APPLE_S5L_UTRSTAT) & ARM64_APPLE_S5L_UTRSTAT_RXD))
+            {
+                return FALSE;
+            }
+
+            *Byte = (UCHAR)(EARLY_UART_READ_AT(BaseVa, ARM64_APPLE_S5L_URXH) & 0xFF);
             break;
 
         case Arm64UartQcomGeni:
